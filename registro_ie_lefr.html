@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <title>Registro de Ingreso y Salida</title>
+  <script src="https://unpkg.com/html5-qrcode"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      text-align: center;
+      padding: 0;
+      margin: 0;
+    }
+    #banner {
+      width: 60%;
+      display: block;
+      margin: auto;
+    }
+    #reader {
+      margin: auto;
+      width: 300px;
+    }
+    #result {
+      margin-top: 20px;
+      font-size: 18px;
+      font-weight: bold;
+    }
+    table {
+      margin: 20px auto;
+      border-collapse: collapse;
+      width: 95%;
+    }
+    th, td {
+      padding: 10px;
+      border: 1px solid #000;
+    }
+    .retraso {
+      color: red;
+      font-weight: bold;
+    }
+    button {
+      margin: 10px;
+      padding: 10px 20px;
+      font-size: 16px;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+  <img id="banner" src="logo_ie_lefr.png" alt="Banner Institución Educativa">
+  <h1>REGISTRO DE INGRESO Y SALIDA<br>INSTITUCIÓN EDUCATIVA LUIS ENRIQUE FIGUEROA REY</h1>
+
+  <div id="reader"></div>
+  <div id="result">Escanea un código QR...</div>
+
+  <h2>Historial</h2>
+  <table id="logTable">
+    <thead>
+      <tr>
+        <th>Nombre</th>
+        <th>Fecha de Entrada</th>
+        <th>Hora de Entrada</th>
+        <th>Fecha de Salida</th>
+        <th>Hora de Salida</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <button onclick="exportarExcel()">📤 Exportar a Excel</button>
+
+  <script>
+    const registros = {}
+
+    const getFechaActual = () => new Date().toISOString().split("T")[0]
+    const getHoraActual = () => new Date().toLocaleTimeString('es-CO', { hour12: false })
+
+    function registrar(nombre) {
+      const fecha = getFechaActual()
+      const hora = getHoraActual()
+      const clave = `${nombre}-${fecha}`
+      const tbody = document.querySelector("#logTable tbody")
+      const horaLimite = "19:26:00"
+
+      if (registros[clave] && !registros[clave].fechaSalida) {
+        registros[clave].fechaSalida = fecha
+        registros[clave].horaSalida = hora
+        const cells = registros[clave].fila.cells
+        cells[3].textContent = fecha
+        cells[4].textContent = hora
+        document.getElementById("result").textContent = `👋 ${nombre} registró su salida el ${fecha} a las ${hora}`
+      } else {
+        const fila = tbody.insertRow()
+        fila.insertCell(0).textContent = nombre
+        fila.insertCell(1).textContent = fecha
+        const horaCell = fila.insertCell(2)
+        horaCell.textContent = hora
+        if (hora > horaLimite) horaCell.classList.add("retraso")
+        fila.insertCell(3).textContent = ""
+        fila.insertCell(4).textContent = ""
+        registros[clave] = {
+          fechaEntrada: fecha,
+          horaEntrada: hora,
+          fechaSalida: null,
+          horaSalida: null,
+          fila: fila
+        }
+        document.getElementById("result").textContent = `✅ ${nombre} registró su entrada el ${fecha} a las ${hora}`
+      }
+
+      const datos = Object.fromEntries(Object.entries(registros).map(([k, v]) => [k, {
+        fechaEntrada: v.fechaEntrada,
+        horaEntrada: v.horaEntrada,
+        fechaSalida: v.fechaSalida,
+        horaSalida: v.horaSalida
+      }]))
+      localStorage.setItem("registros_tmp", JSON.stringify(datos))
+    }
+
+    function exportarExcel() {
+      const data = [["Nombre", "Fecha de Entrada", "Hora de Entrada", "Fecha de Salida", "Hora de Salida"]]
+      for (const clave in registros) {
+        const nombre = clave.split("-")[0]
+        const r = registros[clave]
+        data.push([
+          nombre,
+          r.fechaEntrada || "",
+          r.horaEntrada || "",
+          r.fechaSalida || "",
+          r.horaSalida || ""
+        ])
+      }
+
+      const hoja = XLSX.utils.aoa_to_sheet(data)
+      const libro = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(libro, hoja, "Registros")
+      XLSX.writeFile(libro, "registro_asistencia.xlsx")
+    }
+
+    window.onload = () => {
+      const datos = JSON.parse(localStorage.getItem("registros_tmp")) || {}
+      const tbody = document.querySelector("#logTable tbody")
+      for (const clave in datos) {
+        const r = datos[clave]
+        const fila = tbody.insertRow()
+        const nombre = clave.split("-")[0]
+        fila.insertCell(0).textContent = nombre
+        fila.insertCell(1).textContent = r.fechaEntrada
+        const horaCell = fila.insertCell(2)
+        horaCell.textContent = r.horaEntrada
+        if (r.horaEntrada > "19:26:00") horaCell.classList.add("retraso")
+        fila.insertCell(3).textContent = r.fechaSalida || ""
+        fila.insertCell(4).textContent = r.horaSalida || ""
+        registros[clave] = { ...r, fila: fila }
+      }
+    }
+
+    const scanner = new Html5Qrcode("reader")
+    const config = { fps: 10, qrbox: 250 }
+
+    function iniciarScanner() {
+      scanner.start(
+        { facingMode: "environment" },
+        config,
+        (decodedText) => {
+          scanner.stop()
+          registrar(decodedText.trim())
+          setTimeout(() => iniciarScanner(), 3000)
+        }
+      ).catch(err => console.error("Error al iniciar escáner:", err))
+    }
+    iniciarScanner()
+  </script>
+</body>
+</html>
